@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GT Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">GT</div>
+          <div>
+            <h1>GT Agent</h1>
+            <p>Geometry & Topology Research</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <label>
+            Provider URL
+            <input id="baseUrl" value="https://api.openai.com/v1" autocomplete="off" />
+          </label>
+          <label>
+            Model
+            <input id="model" value="gpt-4.1" autocomplete="off" />
+          </label>
+          <label>
+            API Key
+            <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+          </label>
+          <label>
+            Temperature
+            <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2" />
+          </label>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h2>Research Console</h2>
+            <p>Geometry/topology workspace</p>
+          </div>
+          <button id="runBtn" type="button">Run</button>
+        </header>
+
+        <section class="conversation" id="conversation">
+          <article class="message assistant">
+            <div class="avatar">GT</div>
+            <div class="bubble">
+              <strong>Ready.</strong>
+              <p>State a problem with its definitions, hypotheses, and allowed references.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="composer">
+          <label class="context-label">
+            Domain Context
+            <textarea id="context" rows="4" placeholder="smooth manifolds, compact oriented closed, allowed references..."></textarea>
+          </label>
+          <label class="problem-label">
+            Problem
+            <textarea id="problem" rows="8" placeholder="Problem statement..."></textarea>
+          </label>
+          <div class="composer-actions">
+            <span id="statusText">Idle</span>
+            <button id="sendBtn" type="button">Send</button>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
