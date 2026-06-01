@@ -16,7 +16,7 @@ class ModelConfig:
     base_url: str = "https://api.openai.com/v1"
     api_key: str | None = None
     temperature: float = 0.2
-    max_tokens: int = 4096
+    max_tokens: int = 8192
 
     @classmethod
     def from_env(cls) -> "ModelConfig":
@@ -26,7 +26,7 @@ class ModelConfig:
             base_url=os.getenv("GT_MODEL_BASE_URL", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
             api_key=os.getenv("GT_MODEL_API_KEY", os.getenv("OPENAI_API_KEY")),
             temperature=float(os.getenv("GT_MODEL_TEMPERATURE", "0.2")),
-            max_tokens=int(os.getenv("GT_MODEL_MAX_TOKENS", "4096")),
+            max_tokens=int(os.getenv("GT_MODEL_MAX_TOKENS", "8192")),
         )
 
 
@@ -34,6 +34,7 @@ class ModelConfig:
 class ModelResponse:
     text: str
     raw: dict[str, Any]
+    finish_reason: str | None = None
 
 
 class ModelClientError(RuntimeError):
@@ -96,10 +97,11 @@ class OpenAICompatibleClient:
             raise ModelClientError(_format_url_error(url, exc)) from exc
 
         try:
-            text = raw["choices"][0]["message"]["content"]
+            choice = raw["choices"][0]
+            text = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ModelClientError("model API returned an unexpected response shape") from exc
-        return ModelResponse(text=text, raw=raw)
+        return ModelResponse(text=text, raw=raw, finish_reason=choice.get("finish_reason"))
 
     def _post_chat_completion(self, *, url: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(

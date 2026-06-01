@@ -10,6 +10,8 @@ from typing import Any
 
 from .model_client import ModelConfig
 from .research_service import GTResearchService, ResearchRequest
+from .tool_config import load_tools_config, reset_tools_config, save_tools_config, serialize_tools_config
+from .tools import ToolRegistry
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 
@@ -31,6 +33,9 @@ class GTWebHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if self.path == "/api/tools":
+            self._send_json(_tools_payload())
+            return
         if self.path in {"/", "/index.html"}:
             self._send_file(WEB_ROOT / "index.html")
             return
@@ -41,6 +46,10 @@ class GTWebHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self) -> None:
+        if self.path == "/api/tools/reset":
+            config = reset_tools_config()
+            self._send_json(_tools_payload(config))
+            return
         if self.path != "/api/research":
             self._send_json({"error": "not found"}, status=404)
             return
@@ -55,12 +64,49 @@ class GTWebHandler(BaseHTTPRequestHandler):
                 base_url=_text(payload.get("base_url")) or config.base_url,
                 api_key=_text(payload.get("api_key")) or config.api_key,
                 temperature=float(payload.get("temperature", config.temperature)),
+                max_tokens=_positive_int(payload.get("max_tokens")) or config.max_tokens,
             )
             if not request.problem:
                 self._send_json({"error": "problem is required"}, status=400)
                 return
             response = self.service.research(request)
             self._send_json(response.to_dict())
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, status=400)
+
+    def do_PATCH(self) -> None:
+        if not self.path.startswith("/api/tools/"):
+            self._send_json({"error": "not found"}, status=404)
+            return
+        tool_id = self.path.removeprefix("/api/tools/").split("?", 1)[0]
+        try:
+            payload = self._read_json()
+            if "enabled" not in payload:
+                self._send_json({"error": "enabled is required"}, status=400)
+                return
+            config = load_tools_config()
+            if tool_id not in config.tools:
+                self._send_json({"error": "unknown tool"}, status=404)
+                return
+            config = config.with_updates({tool_id: bool(payload["enabled"])})
+            save_tools_config(config)
+            self._send_json(_tools_payload(config))
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, status=400)
+
+    def do_PUT(self) -> None:
+        if self.path != "/api/tools":
+            self._send_json({"error": "not found"}, status=404)
+            return
+        try:
+            payload = self._read_json()
+            updates = payload.get("tools", payload)
+            if not isinstance(updates, dict):
+                self._send_json({"error": "tools must be an object"}, status=400)
+                return
+            config = load_tools_config().with_updates({str(key): bool(value) for key, value in updates.items()})
+            save_tools_config(config)
+            self._send_json(_tools_payload(config))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json({"error": str(exc)}, status=400)
 
@@ -108,6 +154,24 @@ def _text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _positive_int(value: object) -> int | None:
+    text = _text(value)
+    if not text:
+        return None
+    parsed = int(text)
+    if parsed <= 0:
+        raise ValueError("max_tokens must be a positive integer")
+    return parsed
+
+
+def _tools_payload(config: object | None = None) -> dict[str, object]:
+    loaded = config or load_tools_config()
+    return {
+        **serialize_tools_config(loaded),  # type: ignore[arg-type]
+        "metadata": ToolRegistry(loaded).list_metadata(),  # type: ignore[arg-type]
+    }
 
 
 def _display_urls(host: str, port: int) -> list[str]:

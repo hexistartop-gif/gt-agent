@@ -5,6 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GT Agent</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [
+            ["$", "$"],
+            ["\\(", "\\)"],
+          ],
+          displayMath: [
+            ["$$", "$$"],
+            ["\\[", "\\]"],
+          ],
+          processEscapes: true,
+        },
+        options: {
+          skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+        },
+        startup: {
+          ready: () => {
+            MathJax.startup.defaultReady();
+            document.dispatchEvent(new CustomEvent("mathjax-ready"));
+          },
+        },
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -16,6 +41,18 @@
             <p>Geometry & Topology Research</p>
           </div>
         </div>
+
+        <section class="chat-panel" aria-labelledby="chatsTitle">
+          <div class="chat-panel-header">
+            <h2 id="chatsTitle">Conversations</h2>
+            <button id="newChatBtn" type="button" title="New conversation">New</button>
+          </div>
+          <div class="chat-actions">
+            <button id="renameChatBtn" type="button">Rename</button>
+            <button id="deleteChatBtn" type="button">Delete</button>
+          </div>
+          <div id="chatList" class="chat-list"></div>
+        </section>
 
         <section class="panel">
           <label>
@@ -34,16 +71,41 @@
             Temperature
             <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2" />
           </label>
+          <label>
+            Max Tokens
+            <input id="maxTokens" type="number" min="512" step="512" value="8192" />
+          </label>
+        </section>
+
+        <section class="tools-panel" aria-labelledby="toolsTitle">
+          <div class="tools-panel-header">
+            <h2 id="toolsTitle">Tools</h2>
+            <span id="toolsStatus">Loading</span>
+          </div>
+          <div class="tool-actions">
+            <button id="enableAllToolsBtn" type="button">All On</button>
+            <button id="disableAllToolsBtn" type="button">All Off</button>
+            <button id="resetToolsBtn" type="button">Reset</button>
+          </div>
+          <div id="toolsList" class="tools-list"></div>
         </section>
       </aside>
 
       <section class="workspace">
         <header class="topbar">
           <div>
-            <h2>Research Console</h2>
+            <h2 id="activeChatTitle">Research Console</h2>
             <p>Geometry/topology workspace</p>
           </div>
-          <button id="runBtn" type="button">Run</button>
+          <div class="topbar-actions">
+            <select id="exportFormat" aria-label="Export format">
+              <option value="markdown">Markdown</option>
+              <option value="pdf">PDF</option>
+              <option value="json">JSON</option>
+            </select>
+            <button id="exportBtn" type="button">Export</button>
+            <button id="runBtn" type="button">Run</button>
+          </div>
         </header>
 
         <section class="conversation" id="conversation">

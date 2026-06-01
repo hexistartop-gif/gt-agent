@@ -1,0 +1,54 @@
+tools:
+  web_search:
+    enabled: true
+    display_name: "Web Search"
+    category: "general"
+    provider: "tavily"
+    priority: 0
+  theorem_lookup:
+    enabled: false
+    display_name: "Theorem Lookup"
+    category: "reference"
+    priority: 10
+  arxiv_search:
+    enabled: true
+    display_name: "arXiv Search"
+    category: "literature"
+    semantic: false
+    priority: 20
+  homology_homotopy:
+    enabled: false
+    display_name: "Homology / Homotopy"
+    category: "topology_compute"
+    backend: "sage"
+    priority: 30
+  topological_invariants:
+    enabled: false
+    display_name: "Topological Invariants"
+    category: "topology_compute"
+    priority: 40
+  sympy_pointset:
+    enabled: false
+    display_name: "SymPy Point-Set Checks"
+    category: "verification"
+    priority: 50
+  topology_database:
+    enabled: false
+    display_name: "Topology Databases"
+    category: "database"
+    sources:
+      - "manifold_atlas"
+      - "nlab"
+      - "groupprops"
+    priority: 60
+  proof_chain:
+    enabled: false
+    display_name: "Proof Chain"
+    category: "reasoning"
+    priority: 70
+  proof_verification:
+    enabled: false
+    display_name: "Proof Verification"
+    category: "verification"
+    backend: "lean"
+    priority: 80
