@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -15,6 +16,42 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseTool
+
+try:
+    from bs4 import BeautifulSoup
+except Exception:  # pragma: no cover - optional dependency fallback.
+    BeautifulSoup = None
+
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover - optional dependency fallback.
+    PdfReader = None
+
+
+ARXIV_DOWNLOAD_TOKENS = (
+    "download",
+    "pdf",
+    "full text",
+    "full-text",
+    "full paper",
+    "download pdf",
+    "阅读全文",
+    "全文",
+    "下载",
+)
+ARXIV_READ_TOKENS = (
+    "read",
+    "summarize",
+    "summary",
+    "analyze",
+    "analysis",
+    "review",
+    "interpret",
+    "介绍",
+    "总结",
+    "分析",
+    "解读",
+)
 
 
 class WebSearchTool(BaseTool):
@@ -91,8 +128,33 @@ class ArxivSearchTool(BaseTool):
     description = "Search arXiv for math.AT/math.GT papers related to the prompt."
     category = "literature"
 
+    def status(self) -> dict[str, Any]:
+        downloader = _preferred_http_downloader()
+        downloader_name = Path(downloader).name if downloader else "urllib"
+        notes = [f"HTTP downloader: {downloader_name}"]
+        if BeautifulSoup is not None:
+            notes.append("BeautifulSoup available")
+        if PdfReader is not None:
+            notes.append("PDF text extraction available")
+        return {"available": True, "status": "ready", "note": "; ".join(notes)}
+
     def run(self, *, problem: str, domain_context: str = "") -> dict[str, Any]:
         parsed = _parse_arxiv_request(problem, domain_context)
+        if parsed["paper_ids"]:
+            try:
+                id_results = _fetch_arxiv_id_results(parsed)
+            except Exception as exc:  # noqa: BLE001 - tool failures should not block research.
+                return {"status": "error", "reason": str(exc), "results": []}
+            id_results = _postprocess_arxiv_results(id_results[: parsed["max_results"]], parsed)
+            return {
+                "status": "ok",
+                "query": parsed["query"],
+                "request_type": "id_lookup",
+                "source": "arxiv_api",
+                "source_url": _arxiv_id_lookup_url(parsed["paper_ids"]),
+                "filters": _arxiv_filters(parsed),
+                "results": id_results,
+            }
         list_error = ""
         if parsed["date"] and parsed["date_mode"] == "announcement":
             try:
@@ -113,7 +175,7 @@ class ArxivSearchTool(BaseTool):
                         "date_field": parsed["date_field"],
                         "date_mode": parsed["date_mode"],
                     },
-                    "results": day_results[: parsed["max_results"]],
+                    "results": _postprocess_arxiv_results(day_results[: parsed["max_results"]], parsed),
                 }
             if _should_bridge_to_next_arxiv_announcement(parsed):
                 try:
@@ -129,7 +191,7 @@ class ArxivSearchTool(BaseTool):
                         "source": "arxiv_list",
                         "source_url": _arxiv_listing_url(parsed),
                         "filters": _arxiv_filters(parsed),
-                        "results": bridged_results[: parsed["max_results"]],
+                        "results": _postprocess_arxiv_results(bridged_results[: parsed["max_results"]], parsed),
                     }
             if day_results is not None:
                 return {
@@ -160,7 +222,7 @@ class ArxivSearchTool(BaseTool):
                         "date_field": parsed["date_field"],
                         "date_mode": parsed["date_mode"],
                     },
-                    "results": recent_results[: parsed["max_results"]],
+                    "results": _postprocess_arxiv_results(recent_results[: parsed["max_results"]], parsed),
                 }
         search = _build_arxiv_search_query(parsed)
         params = urllib.parse.urlencode(
@@ -181,43 +243,12 @@ class ArxivSearchTool(BaseTool):
                 return fallback
             return {"status": "error", "reason": str(exc), "results": []}
 
-        namespace = {"atom": "http://www.w3.org/2005/Atom"}
-        root = ET.fromstring(xml_text)
-        results = []
-        for entry in root.findall("atom:entry", namespace):
-            title = _clean_text(entry.findtext("atom:title", default="", namespaces=namespace))
-            summary = _clean_text(entry.findtext("atom:summary", default="", namespaces=namespace))
-            url = entry.findtext("atom:id", default="", namespaces=namespace)
-            published = entry.findtext("atom:published", default="", namespaces=namespace)
-            updated = entry.findtext("atom:updated", default="", namespaces=namespace)
-            primary_category = ""
-            category_node = entry.find("atom:primary_category", namespace)
-            if category_node is not None:
-                primary_category = category_node.attrib.get("term", "")
-            authors = [
-                _clean_text(author.findtext("atom:name", default="", namespaces=namespace))
-                for author in entry.findall("atom:author", namespace)
-            ]
-            arxiv_id = url.rsplit("/", 1)[-1] if url else ""
-            results.append(
-                {
-                    "id": arxiv_id,
-                    "title": title,
-                    "url": url,
-                    "abs_url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else url,
-                    "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else "",
-                    "snippet": summary[:600],
-                    "summary": summary,
-                    "published": published,
-                    "updated": updated,
-                    "primary_category": primary_category,
-                    "authors": authors,
-                }
-        )
+        results = _parse_arxiv_api_entries(xml_text)
         if parsed["date"] and parsed["date_mode"] == "announcement":
             results = [item for item in results if _iso_prefix(item.get("published", "")) == parsed["date"]]
             if results:
                 _store_arxiv_cache(parsed, results)
+        results = _postprocess_arxiv_results(results[: parsed["max_results"]], parsed)
         return {
             "status": "ok",
             "query": parsed["query"],
@@ -230,7 +261,7 @@ class ArxivSearchTool(BaseTool):
                 "date_field": parsed["date_field"],
                 "date_mode": parsed["date_mode"],
             },
-            "results": results[: parsed["max_results"]],
+            "results": results,
         }
 
 
@@ -380,6 +411,7 @@ def _clean_text(text: str) -> str:
 def _parse_arxiv_request(problem: str, domain_context: str) -> dict[str, Any]:
     text = " ".join(f"{problem} {domain_context}".split())
     lowered = text.lower()
+    paper_ids = _extract_arxiv_ids(text)
     categories = sorted(set(re.findall(r"\b[a-z]+\.[A-Z]{2}\b", text)))
     if not categories:
         categories = sorted(set(re.findall(r"\b[a-z]+\.[a-z]{2}\b", lowered)))
@@ -387,7 +419,7 @@ def _parse_arxiv_request(problem: str, domain_context: str) -> dict[str, Any]:
         category.replace("math.at", "math.AT").replace("math.gt", "math.GT").replace("math.dg", "math.DG")
         for category in categories
     ]
-    if not normalized_categories:
+    if not normalized_categories and not paper_ids:
         normalized_categories = ["math.AT", "math.GT", "math.DG"]
 
     date_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
@@ -424,36 +456,53 @@ def _parse_arxiv_request(problem: str, domain_context: str) -> dict[str, Any]:
         lowered,
         ("submitteddate", "submission date", "latest submission date", "original submission date"),
     )
+    wants_download = _contains_any(lowered, ARXIV_DOWNLOAD_TOKENS)
+    wants_read = _contains_any(lowered, ARXIV_READ_TOKENS)
+    ground_with_pdf = wants_download or (bool(paper_ids) and wants_read)
     if explicit_date:
         date_mode = "submitted" if explicit_submission_date and not mentions_posted else "announcement"
     else:
         date_mode = "none"
-    request_type = "structured_lookup" if explicit_date and (wants_inventory or mentions_posted) else "semantic_search"
+    if paper_ids:
+        request_type = "id_lookup"
+    elif explicit_date and (wants_inventory or mentions_posted):
+        request_type = "structured_lookup"
+    else:
+        request_type = "semantic_search"
+    max_results = max(1, len(paper_ids)) if paper_ids else 50 if explicit_date else 5
 
     return {
         "query": text,
         "request_type": request_type,
+        "paper_ids": paper_ids,
         "categories": normalized_categories,
         "date": explicit_date,
         "date_field": "submittedDate" if explicit_date else None,
         "date_mode": date_mode,
-        "max_results": 50 if explicit_date else 5,
+        "max_results": max_results,
         "sort_by": "submittedDate" if explicit_date else "relevance",
         "sort_order": "ascending" if explicit_date else "descending",
+        "download_pdfs": ground_with_pdf,
+        "download_limit": _configured_arxiv_download_limit(max(2, len(paper_ids)) if paper_ids else 2) if ground_with_pdf else 0,
+        "enrich_abs_page": ground_with_pdf or bool(paper_ids),
     }
 
 
 def _build_arxiv_search_query(parsed: dict[str, Any]) -> str:
     categories = parsed["categories"]
-    category_query = "(" + " OR ".join(f"cat:{category}" for category in categories) + ")"
+    category_query = "(" + " OR ".join(f"cat:{category}" for category in categories) + ")" if categories else ""
     if parsed["date"]:
         if parsed.get("date_mode") == "announcement":
             start, end = _arxiv_month_bounds(parsed["date"])
         else:
             start, end = _arxiv_day_bounds(parsed["date"])
-        return f"{category_query} AND {parsed['date_field']}:[{start} TO {end}]"
+        if category_query:
+            return f"{category_query} AND {parsed['date_field']}:[{start} TO {end}]"
+        return f"{parsed['date_field']}:[{start} TO {end}]"
     query = _compact_query(parsed["query"], "")
-    return f'all:"{query}" AND {category_query}'
+    if category_query:
+        return f'all:"{query}" AND {category_query}'
+    return f'all:"{query}"'
 
 
 def _arxiv_day_bounds(raw_date: str) -> tuple[str, str]:
@@ -493,6 +542,32 @@ def _resolve_relative_date(text: str) -> str | None:
 
 def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
     return any(token in text for token in tokens)
+
+
+def _extract_arxiv_ids(text: str) -> list[str]:
+    ids: list[str] = []
+    for match in re.findall(r"(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)", text, re.I):
+        normalized = _normalize_arxiv_id(match)
+        if normalized and normalized not in ids:
+            ids.append(normalized)
+    for match in re.findall(r"arxiv\.org\/(?:abs|pdf)\/([^\/\s?#]+?)(?:\.pdf)?(?=[?#\s]|$)", text, re.I):
+        normalized = _normalize_arxiv_id(match)
+        if normalized and normalized not in ids:
+            ids.append(normalized)
+    return ids
+
+
+def _normalize_arxiv_id(value: str) -> str:
+    candidate = value.strip()
+    if candidate.lower().startswith("arxiv:"):
+        candidate = candidate.split(":", 1)[1]
+    if candidate.lower().endswith(".pdf"):
+        candidate = candidate[:-4]
+    return candidate
+
+
+def _strip_arxiv_version(arxiv_id: str) -> str:
+    return re.sub(r"v\d+$", "", arxiv_id, flags=re.I)
 
 
 def _should_use_recent_arxiv_list(parsed: dict[str, Any]) -> bool:
@@ -632,6 +707,322 @@ def _fetch_recent_arxiv_results(parsed: dict[str, Any]) -> list[dict[str, Any]] 
     return results
 
 
+def _parse_arxiv_api_entries(xml_text: str) -> list[dict[str, Any]]:
+    namespace = {"atom": "http://www.w3.org/2005/Atom"}
+    root = ET.fromstring(xml_text)
+    results: list[dict[str, Any]] = []
+    for entry in root.findall("atom:entry", namespace):
+        title = _clean_text(entry.findtext("atom:title", default="", namespaces=namespace))
+        summary = _clean_text(entry.findtext("atom:summary", default="", namespaces=namespace))
+        url = entry.findtext("atom:id", default="", namespaces=namespace)
+        published = entry.findtext("atom:published", default="", namespaces=namespace)
+        updated = entry.findtext("atom:updated", default="", namespaces=namespace)
+        primary_category = ""
+        category_node = entry.find("atom:primary_category", namespace)
+        if category_node is not None:
+            primary_category = category_node.attrib.get("term", "")
+        authors = [
+            _clean_text(author.findtext("atom:name", default="", namespaces=namespace))
+            for author in entry.findall("atom:author", namespace)
+        ]
+        arxiv_id = url.rsplit("/", 1)[-1] if url else ""
+        results.append(
+            {
+                "id": arxiv_id,
+                "title": title,
+                "url": url,
+                "abs_url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else url,
+                "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else "",
+                "snippet": summary[:600],
+                "summary": summary,
+                "published": published,
+                "updated": updated,
+                "primary_category": primary_category,
+                "authors": authors,
+            }
+        )
+    return results
+
+
+def _fetch_arxiv_id_results(parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    paper_ids = [paper_id for paper_id in parsed.get("paper_ids", []) if paper_id]
+    if not paper_ids:
+        return []
+    params = urllib.parse.urlencode({"id_list": ",".join(paper_ids), "start": 0, "max_results": len(paper_ids)})
+    url = f"https://export.arxiv.org/api/query?{params}"
+    xml_text = _fetch_url_text(url)
+    fetched = _parse_arxiv_api_entries(xml_text)
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in fetched:
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            continue
+        indexed.setdefault(item_id, item)
+        indexed.setdefault(_strip_arxiv_version(item_id), item)
+
+    ordered: list[dict[str, Any]] = []
+    for requested_id in paper_ids:
+        item = indexed.get(requested_id) or indexed.get(_strip_arxiv_version(requested_id))
+        if item is not None:
+            ordered.append(dict(item))
+            continue
+        abs_url = f"https://arxiv.org/abs/{requested_id}"
+        ordered.append(
+            {
+                "id": requested_id,
+                "title": requested_id,
+                "url": abs_url,
+                "abs_url": abs_url,
+                "pdf_url": f"https://arxiv.org/pdf/{_strip_arxiv_version(requested_id)}.pdf",
+                "snippet": "",
+                "summary": "",
+                "published": "",
+                "updated": "",
+                "primary_category": "",
+                "authors": [],
+            }
+        )
+    return ordered
+
+
+def _arxiv_id_lookup_url(paper_ids: list[str]) -> str:
+    params = urllib.parse.urlencode({"id_list": ",".join(paper_ids), "start": 0, "max_results": len(paper_ids)})
+    return f"https://export.arxiv.org/api/query?{params}"
+
+
+def _postprocess_arxiv_results(results: list[dict[str, Any]], parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    materialized = [dict(item) for item in results if isinstance(item, dict)]
+    if not materialized:
+        return materialized
+
+    enrich_limit = len(materialized) if parsed.get("paper_ids") else min(len(materialized), max(1, parsed.get("download_limit", 1)))
+    if parsed.get("enrich_abs_page"):
+        _enrich_arxiv_abs_pages(materialized, enrich_limit)
+    if parsed.get("download_pdfs"):
+        _download_arxiv_pdfs(materialized, parsed)
+    return materialized
+
+
+def _enrich_arxiv_abs_pages(results: list[dict[str, Any]], limit: int) -> None:
+    for item in results[:limit]:
+        abs_url = str(item.get("abs_url") or item.get("url") or "")
+        if not abs_url:
+            continue
+        try:
+            metadata = _fetch_arxiv_abs_page_metadata(abs_url)
+        except Exception as exc:  # noqa: BLE001 - enrichment should never break search.
+            item.setdefault("abs_page_error", str(exc))
+            continue
+        for key in ("title", "published", "pdf_url", "primary_category"):
+            if metadata.get(key) and not item.get(key):
+                item[key] = metadata[key]
+        if metadata.get("authors"):
+            item["authors"] = metadata["authors"]
+        summary = str(metadata.get("summary") or "")
+        if len(summary) > len(str(item.get("summary") or "")):
+            item["summary"] = summary
+            item["snippet"] = summary[:600]
+        if metadata.get("source") and not item.get("metadata_source"):
+            item["metadata_source"] = metadata["source"]
+
+
+def _fetch_arxiv_abs_page_metadata(abs_url: str) -> dict[str, Any]:
+    html_text = _fetch_url_text(abs_url, timeout=10)
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html_text, "html.parser")
+        title = ""
+        title_meta = soup.find("meta", attrs={"name": "citation_title"})
+        if title_meta and title_meta.get("content"):
+            title = _clean_text(str(title_meta["content"]))
+        if not title:
+            title_node = soup.select_one("h1.title")
+            title = _clean_arxiv_abstract_text(title_node.get_text(" ", strip=True) if title_node else "")
+
+        summary = ""
+        abstract_node = soup.select_one("blockquote.abstract")
+        if abstract_node:
+            summary = _clean_arxiv_abstract_text(abstract_node.get_text(" ", strip=True))
+
+        authors = []
+        for author_meta in soup.find_all("meta", attrs={"name": "citation_author"}):
+            content = _clean_text(str(author_meta.get("content", "")))
+            if content:
+                authors.append(content)
+        if not authors:
+            authors = [_clean_text(node.get_text(" ", strip=True)) for node in soup.select(".authors a")]
+
+        pdf_url = ""
+        pdf_meta = soup.find("meta", attrs={"name": "citation_pdf_url"})
+        if pdf_meta and pdf_meta.get("content"):
+            pdf_url = _clean_text(str(pdf_meta["content"]))
+
+        published = ""
+        published_meta = soup.find("meta", attrs={"name": "citation_date"})
+        if published_meta and published_meta.get("content"):
+            published = _clean_text(str(published_meta["content"]))
+
+        primary_category = ""
+        subject_meta = soup.find("meta", attrs={"name": "citation_keywords"})
+        if subject_meta and subject_meta.get("content"):
+            primary_category = _clean_text(str(subject_meta["content"]))
+
+        return {
+            "title": title,
+            "summary": summary,
+            "authors": authors,
+            "pdf_url": pdf_url,
+            "published": published,
+            "primary_category": primary_category,
+            "source": "arxiv_abs_page",
+        }
+
+    title_match = re.search(r'<meta name="citation_title" content="([^"]+)"', html_text, re.I)
+    pdf_match = re.search(r'<meta name="citation_pdf_url" content="([^"]+)"', html_text, re.I)
+    date_match = re.search(r'<meta name="citation_date" content="([^"]+)"', html_text, re.I)
+    author_matches = re.findall(r'<meta name="citation_author" content="([^"]+)"', html_text, re.I)
+    summary_match = re.search(r"<blockquote class=['\"]abstract[^>]*>(.*?)</blockquote>", html_text, re.S | re.I)
+    return {
+        "title": _clean_text(unescape(title_match.group(1))) if title_match else "",
+        "summary": _clean_arxiv_abstract_text(_clean_html_fragment(summary_match.group(1))) if summary_match else "",
+        "authors": [_clean_text(unescape(item)) for item in author_matches],
+        "pdf_url": _clean_text(unescape(pdf_match.group(1))) if pdf_match else "",
+        "published": _clean_text(unescape(date_match.group(1))) if date_match else "",
+        "primary_category": "",
+        "source": "arxiv_abs_page",
+    }
+
+
+def _clean_arxiv_abstract_text(text: str) -> str:
+    cleaned = _clean_text(text)
+    return re.sub(r"^(title|abstract)\s*:\s*", "", cleaned, flags=re.I)
+
+
+def _configured_arxiv_download_limit(default_value: int) -> int:
+    raw_value = os.getenv("GT_ARXIV_MAX_DOWNLOADS")
+    if not raw_value:
+        return max(1, default_value)
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return max(1, default_value)
+    return max(1, min(parsed, 10))
+
+
+def _preferred_http_downloader() -> str | None:
+    return shutil.which("curl.exe") or shutil.which("curl") or shutil.which("wget")
+
+
+def _arxiv_download_dir() -> Path:
+    configured = os.getenv("GT_ARXIV_DOWNLOAD_DIR")
+    if configured:
+        return Path(configured)
+    return Path.home() / ".cache" / "gt_agent" / "arxiv_papers"
+
+
+def _download_arxiv_pdfs(results: list[dict[str, Any]], parsed: dict[str, Any]) -> None:
+    limit = min(len(results), max(0, int(parsed.get("download_limit") or 0)))
+    for item in results[:limit]:
+        arxiv_id = str(item.get("id") or "")
+        pdf_url = str(item.get("pdf_url") or "")
+        if not arxiv_id or not pdf_url:
+            continue
+        try:
+            pdf_path, method = _download_arxiv_pdf(pdf_url, arxiv_id)
+            item["local_pdf_path"] = str(pdf_path)
+            item["pdf_download_status"] = "ok"
+            item["pdf_download_method"] = method
+            item["pdf_size_bytes"] = pdf_path.stat().st_size
+            preview = _extract_pdf_text_preview(pdf_path)
+            if preview:
+                item["full_text_preview"] = preview
+                item["snippet"] = preview[:600]
+                item["grounding_source"] = "local_pdf"
+            else:
+                item.setdefault("grounding_source", "local_pdf")
+        except Exception as exc:  # noqa: BLE001 - download failure should not mask search results.
+            item["pdf_download_status"] = "error"
+            item["pdf_download_error"] = str(exc)
+
+
+def _download_arxiv_pdf(pdf_url: str, arxiv_id: str) -> tuple[Path, str]:
+    target_dir = _arxiv_download_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", _strip_arxiv_version(arxiv_id))
+    destination = target_dir / f"{safe_stem}.pdf"
+    if destination.exists() and destination.stat().st_size > 0:
+        return destination, "cache"
+
+    temp_path = destination.with_suffix(".pdf.part")
+    if temp_path.exists():
+        temp_path.unlink()
+
+    downloader = _preferred_http_downloader()
+    if downloader:
+        downloader_name = Path(downloader).name.lower()
+        if "curl" in downloader_name:
+            command = [
+                downloader,
+                "-L",
+                "--fail",
+                "--retry",
+                "2",
+                "--retry-delay",
+                "1",
+                "-A",
+                "gt-agent/0.1; local research assistant",
+                "-o",
+                str(temp_path),
+                pdf_url,
+            ]
+        else:
+            command = [
+                downloader,
+                "-q",
+                "--tries=3",
+                "--waitretry=1",
+                "-U",
+                "gt-agent/0.1; local research assistant",
+                "-O",
+                str(temp_path),
+                pdf_url,
+            ]
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=180)
+        method = downloader_name
+    else:
+        request = urllib.request.Request(pdf_url, headers={"User-Agent": "gt-agent/0.1; local research assistant"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            temp_path.write_bytes(response.read())
+        method = "urllib"
+
+    temp_path.replace(destination)
+    return destination, method
+
+
+def _extract_pdf_text_preview(pdf_path: Path, *, max_pages: int = 3, max_chars: int = 4000) -> str:
+    if PdfReader is None:
+        return ""
+    try:
+        reader = PdfReader(str(pdf_path))
+    except Exception:  # noqa: BLE001 - malformed PDF should not break the retrieval path.
+        return ""
+    chunks: list[str] = []
+    total_chars = 0
+    for page in reader.pages[:max_pages]:
+        try:
+            page_text = _clean_text(page.extract_text() or "")
+        except Exception:  # noqa: BLE001 - individual page extraction may fail on scanned PDFs.
+            continue
+        if not page_text:
+            continue
+        remaining = max_chars - total_chars
+        if remaining <= 0:
+            break
+        snippet = page_text[:remaining]
+        chunks.append(snippet)
+        total_chars += len(snippet)
+    return " ".join(chunks)
+
+
 def _fetch_url_text(url: str, *, timeout: int = 8, retries: int = 1) -> str:
     headers = {
         "User-Agent": "gt-agent/0.1; local research assistant",
@@ -671,7 +1062,7 @@ def _arxiv_retrieval_fallback(parsed: dict[str, Any], *, list_error: str = "", a
             "source_url": _arxiv_listing_url(parsed),
             "reason": _join_reasons(list_error, api_error),
             "filters": _arxiv_filters(parsed),
-            "results": cached[: parsed["max_results"]],
+            "results": _postprocess_arxiv_results(cached[: parsed["max_results"]], parsed),
         }
     return {
         "status": "rate_limited",
@@ -687,10 +1078,12 @@ def _arxiv_retrieval_fallback(parsed: dict[str, Any], *, list_error: str = "", a
 
 def _arxiv_filters(parsed: dict[str, Any]) -> dict[str, Any]:
     return {
+        "paper_ids": parsed.get("paper_ids", []),
         "categories": parsed["categories"],
         "date": parsed["date"],
         "date_field": parsed["date_field"],
         "date_mode": parsed["date_mode"],
+        "download_pdfs": parsed.get("download_pdfs", False),
     }
 
 
@@ -719,6 +1112,14 @@ def _arxiv_cache_path() -> Path:
 
 
 def _arxiv_cache_key(parsed: dict[str, Any]) -> str:
+    paper_ids = ",".join(parsed.get("paper_ids") or [])
+    categories = ",".join(parsed.get("categories") or [])
+    if paper_ids:
+        return f"{paper_ids}|{parsed.get('date', '')}|{parsed.get('date_mode', '')}|{categories}"
+    return f"{parsed.get('date', '')}|{parsed.get('date_mode', '')}|{categories}"
+
+
+def _legacy_arxiv_cache_key(parsed: dict[str, Any]) -> str:
     categories = ",".join(parsed.get("categories") or [])
     return f"{parsed.get('date', '')}|{parsed.get('date_mode', '')}|{categories}"
 
@@ -731,7 +1132,11 @@ def _load_arxiv_cache(parsed: dict[str, Any], *, allow_stale: bool = False) -> l
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    item = data.get(_arxiv_cache_key(parsed)) if isinstance(data, dict) else None
+    item = None
+    if isinstance(data, dict):
+        item = data.get(_arxiv_cache_key(parsed))
+        if not isinstance(item, dict):
+            item = data.get(_legacy_arxiv_cache_key(parsed))
     if not isinstance(item, dict):
         return None
     results = item.get("results")

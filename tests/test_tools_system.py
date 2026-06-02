@@ -390,3 +390,130 @@ def test_arxiv_rate_limit_returns_source_url_not_tool_error() -> None:
     assert result["status"] == "rate_limited"
     assert result["source_url"] == "https://arxiv.org/list/math.AT/pastweek?show=2000"
     assert result["results"] == []
+
+
+def test_arxiv_tool_exact_id_request_downloads_and_grounds_pdf() -> None:
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b"""<?xml version="1.0"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <entry>
+                <id>http://arxiv.org/abs/2606.12345v1</id>
+                <updated>2026-06-02T12:00:00Z</updated>
+                <published>2026-06-02T12:00:00Z</published>
+                <title>Grounded Topology Paper</title>
+                <summary>API summary.</summary>
+                <author><name>Alice</name></author>
+                <primary_category term="math.AT" />
+              </entry>
+            </feed>"""
+
+    def fake_urlopen(request, timeout=0):  # noqa: ANN001
+        captured["url"] = request.full_url
+        return FakeResponse()
+
+    tool = ArxivSearchTool(ToolConfig(enabled=True, display_name="arXiv Search", category="literature"))
+
+    with TemporaryDirectory() as temp_dir:
+        pdf_path = Path(temp_dir) / "2606.12345.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 test pdf")
+        with patch("urllib.request.urlopen", fake_urlopen):
+            with patch(
+                "gt_agent.tools.builtin._fetch_arxiv_abs_page_metadata",
+                return_value={
+                    "title": "Grounded Topology Paper",
+                    "summary": "Abstract page summary.",
+                    "authors": ["Alice"],
+                    "pdf_url": "https://arxiv.org/pdf/2606.12345v1.pdf",
+                    "published": "2026-06-02",
+                    "primary_category": "math.AT",
+                    "source": "arxiv_abs_page",
+                },
+            ):
+                with patch("gt_agent.tools.builtin._download_arxiv_pdf", return_value=(pdf_path, "curl.exe")):
+                    with patch(
+                        "gt_agent.tools.builtin._extract_pdf_text_preview",
+                        return_value="Preview text from the downloaded PDF.",
+                    ):
+                        result = tool.run(problem="Summarize arXiv 2606.12345 using the full paper.")
+
+    parsed = urllib.parse.urlparse(captured["url"])
+    assert urllib.parse.parse_qs(parsed.query)["id_list"][0] == "2606.12345"
+    assert result["request_type"] == "id_lookup"
+    assert result["filters"]["paper_ids"] == ["2606.12345"]
+    assert result["results"][0]["local_pdf_path"] == str(pdf_path)
+    assert result["results"][0]["grounding_source"] == "local_pdf"
+    assert result["results"][0]["snippet"] == "Preview text from the downloaded PDF."
+
+
+def test_research_service_direct_arxiv_download_answer_includes_local_pdf_path() -> None:
+    class FakeClient:
+        def complete(self, *, system: str, user: str, **kwargs):  # noqa: ARG002
+            raise AssertionError("LLM should not be called for direct arXiv download requests")
+
+    class FakeArxivResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b"""<?xml version="1.0"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <entry>
+                <id>http://arxiv.org/abs/2606.12345v1</id>
+                <updated>2026-06-02T12:00:00Z</updated>
+                <published>2026-06-02T12:00:00Z</published>
+                <title>Grounded Topology Paper</title>
+                <summary>API summary.</summary>
+                <author><name>Alice</name></author>
+                <primary_category term="math.AT" />
+              </entry>
+            </feed>"""
+
+    def fake_urlopen(request, timeout=0):  # noqa: ANN001, ARG001
+        return FakeArxivResponse()
+
+    service = GTResearchService(client=FakeClient())  # type: ignore[arg-type]
+
+    with TemporaryDirectory() as temp_dir:
+        pdf_path = Path(temp_dir) / "2606.12345.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 test pdf")
+        with patch("urllib.request.urlopen", fake_urlopen):
+            with patch(
+                "gt_agent.tools.builtin._fetch_arxiv_abs_page_metadata",
+                return_value={
+                    "title": "Grounded Topology Paper",
+                    "summary": "Abstract page summary.",
+                    "authors": ["Alice"],
+                    "pdf_url": "https://arxiv.org/pdf/2606.12345v1.pdf",
+                    "published": "2026-06-02",
+                    "primary_category": "math.AT",
+                    "source": "arxiv_abs_page",
+                },
+            ):
+                with patch("gt_agent.tools.builtin._download_arxiv_pdf", return_value=(pdf_path, "curl.exe")):
+                    with patch(
+                        "gt_agent.tools.builtin._extract_pdf_text_preview",
+                        return_value="Preview text from the downloaded PDF.",
+                    ):
+                        response = service.research(
+                            ResearchRequest(
+                                problem="Download arXiv 2606.12345 PDF and return the local path.",
+                                domain_context="",
+                                api_key="test-key",
+                            )
+                        )
+
+    assert str(pdf_path) in response.answer
+    assert "Grounded Topology Paper" in response.answer
+    assert response.tool_results

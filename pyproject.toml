@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "Geometry/topology research agent with Lean-oriented validation."
 requires-python = ">=3.10"
 readme = "README.md"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "pypdf>=4",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

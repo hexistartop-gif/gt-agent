@@ -236,10 +236,12 @@ def _append_tool_items(lines: list[str], result: dict[str, object]) -> None:
                 if isinstance(item, dict):
                     title = item.get("title") or item.get("source") or item.get("statement") or "item"
                     url = item.get("url")
-                    snippet = item.get("snippet") or item.get("statement") or item.get("use")
+                    snippet = item.get("full_text_preview") or item.get("snippet") or item.get("statement") or item.get("use")
                     line = f"- {title}"
                     if url:
                         line += f" ({url})"
+                    if item.get("local_pdf_path"):
+                        line += f" [local PDF: {item['local_pdf_path']}]"
                     if snippet:
                         line += f": {snippet}"
                     lines.append(line)
@@ -260,6 +262,8 @@ def _direct_tool_answer(problem: str, tool_results: list[dict[str, object]]) -> 
             "link",
             "links",
             "metadata",
+            "download",
+            "pdf",
             "article list",
             "paper list",
             "search",
@@ -294,7 +298,7 @@ def _direct_tool_answer(problem: str, tool_results: list[dict[str, object]]) -> 
             "warnings": [f"arXiv search error: {result.get('reason', 'unknown error')}"],
         }
 
-    links_only = "metadata" not in lowered
+    links_only = "metadata" not in lowered and "download" not in lowered and "pdf" not in lowered
     entries = result.get("results") or []
     filters = result.get("filters") or {}
     category_text = ", ".join(filters.get("categories", [])) or "requested categories"
@@ -302,6 +306,9 @@ def _direct_tool_answer(problem: str, tool_results: list[dict[str, object]]) -> 
     source_text = result.get("source", "arxiv_api")
 
     lines = ["# arXiv Search Results", ""]
+    requested_ids = [str(item) for item in filters.get("paper_ids", []) if item]
+    if requested_ids:
+        lines.append(f"Requested arXiv IDs: {', '.join(requested_ids)}")
     if date_text:
         lines.append(f"Requested date: {date_text}")
     matched_dates = sorted(
@@ -338,12 +345,19 @@ def _direct_tool_answer(problem: str, tool_results: list[dict[str, object]]) -> 
         abs_url = item.get("abs_url") or item.get("url") or ""
         title = item.get("title", "")
         if links_only:
-            lines.append(f"- {abs_url}")
+            line = f"- {abs_url}"
+            if item.get("local_pdf_path"):
+                line += f" [local PDF: {item['local_pdf_path']}]"
+            lines.append(line)
             continue
         lines.append(f"## {title}")
         lines.append(f"- URL: {abs_url}")
         if item.get("pdf_url"):
             lines.append(f"- PDF: {item['pdf_url']}")
+        if item.get("local_pdf_path"):
+            lines.append(f"- Local PDF: {item['local_pdf_path']}")
+        if item.get("pdf_download_status") == "error":
+            lines.append(f"- PDF download error: {item.get('pdf_download_error', 'unknown error')}")
         if item.get("id"):
             lines.append(f"- arXiv ID: {item['id']}")
         if item.get("primary_category"):
@@ -360,6 +374,8 @@ def _direct_tool_answer(problem: str, tool_results: list[dict[str, object]]) -> 
             lines.append(f"- Authors: {', '.join(item['authors'])}")
         if item.get("summary"):
             lines.append(f"- Summary: {item['summary']}")
+        if item.get("full_text_preview"):
+            lines.append(f"- PDF preview: {item['full_text_preview'][:1200]}")
         lines.append("")
 
     while lines and not lines[-1].strip():
@@ -382,6 +398,8 @@ def _is_search_request(problem: str, domain_context: str) -> bool:
         "links",
         "search",
         "retrieve",
+        "download",
+        "pdf",
         "return the list",
         "find papers",
         "web search",

@@ -18,6 +18,7 @@ dist/
 *.egg-info/
 
 gt_agent_runs/
+artifacts/
 
 .env
 .env.*
