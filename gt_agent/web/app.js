@@ -21,12 +21,104 @@ const toolsList = document.getElementById("toolsList");
 const enableAllToolsBtn = document.getElementById("enableAllToolsBtn");
 const disableAllToolsBtn = document.getElementById("disableAllToolsBtn");
 const resetToolsBtn = document.getElementById("resetToolsBtn");
+const chatSearchEl = document.getElementById("chatSearch");
+const workspace = document.querySelector(".workspace");
+const popoverButtons = Array.from(document.querySelectorAll("[data-popover-target]"));
+const popoverIds = [...new Set(popoverButtons.map((button) => button.dataset.popoverTarget).filter(Boolean))];
+const modelChipEls = [document.getElementById("modelChipValue"), document.getElementById("modelChipValueInline")].filter(Boolean);
+const toolsChipEls = [document.getElementById("toolsChipValue"), document.getElementById("toolsChipValueInline")].filter(Boolean);
 const pendingMathElements = new Set();
 const CHAT_STORAGE_KEY = "gt_agent_conversations_v1";
 const ACTIVE_CHAT_STORAGE_KEY = "gt_agent_active_conversation_v1";
 let toolMetadata = [];
 let conversations = [];
 let activeConversationId = "";
+let openPopoverId = "";
+
+function getPopoverElement(popoverId) {
+  return popoverId ? document.getElementById(popoverId) : null;
+}
+
+function getPopoverButtons(popoverId) {
+  return popoverButtons.filter((button) => button.dataset.popoverTarget === popoverId);
+}
+
+function setChipText(elements, value) {
+  for (const element of elements) {
+    element.textContent = value;
+    element.title = value;
+  }
+}
+
+function formatChipValue(value, fallback = "Unset") {
+  const compact = String(value || "").trim() || fallback;
+  return compact.length > 22 ? `${compact.slice(0, 19)}...` : compact;
+}
+
+function syncModelChipValue() {
+  setChipText(modelChipEls, formatChipValue(modelEl?.value, "Unset"));
+}
+
+function syncToolsChipValue(overrideText = "") {
+  const total = toolMetadata.length;
+  const enabledCount = toolMetadata.filter((tool) => tool.enabled).length;
+  const text = overrideText || (total ? `${enabledCount}/${total} on` : "0/0 on");
+  setChipText(toolsChipEls, text);
+}
+
+function updateWorkspacePopoverState() {
+  workspace?.classList.toggle("has-open-popover", Boolean(openPopoverId));
+  if (workspace) {
+    workspace.dataset.openPopover = openPopoverId || "";
+  }
+}
+
+function closePopover(popoverId) {
+  const popover = getPopoverElement(popoverId);
+  if (popover) {
+    popover.hidden = true;
+  }
+  for (const button of getPopoverButtons(popoverId)) {
+    button.setAttribute("aria-expanded", "false");
+  }
+  if (openPopoverId === popoverId) {
+    openPopoverId = "";
+  }
+  updateWorkspacePopoverState();
+}
+
+function openPopover(popoverId) {
+  const popover = getPopoverElement(popoverId);
+  if (!popover) {
+    return;
+  }
+  if (openPopoverId && openPopoverId !== popoverId) {
+    closePopover(openPopoverId);
+  }
+  popover.hidden = false;
+  for (const button of getPopoverButtons(popoverId)) {
+    button.setAttribute("aria-expanded", "true");
+  }
+  openPopoverId = popoverId;
+  updateWorkspacePopoverState();
+}
+
+function closeAllPopovers() {
+  for (const popoverId of popoverIds) {
+    closePopover(popoverId);
+  }
+}
+
+function togglePopover(popoverId) {
+  if (!popoverId) {
+    return;
+  }
+  if (openPopoverId === popoverId) {
+    closePopover(popoverId);
+    return;
+  }
+  openPopover(popoverId);
+}
 
 function loadConversations() {
   try {
@@ -139,7 +231,16 @@ function deleteActiveConversation() {
 function renderChatList() {
   conversations.sort((left, right) => new Date(right.updated_at || 0) - new Date(left.updated_at || 0));
   chatList.replaceChildren();
+  const query = String(chatSearchEl?.value || "")
+    .trim()
+    .toLowerCase();
   for (const conversationItem of conversations) {
+    if (query) {
+      const haystack = `${conversationItem.title} ${conversationItem.messages.map((message) => message.text).join(" ")}`.toLowerCase();
+      if (!haystack.includes(query)) {
+        continue;
+      }
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = `chat-item ${conversationItem.id === activeConversationId ? "active" : ""}`;
@@ -163,7 +264,7 @@ function renderChatList() {
 function formatChatMeta(conversationItem) {
   const count = conversationItem.messages?.length || 0;
   const date = conversationItem.updated_at ? new Date(conversationItem.updated_at) : new Date();
-  return `${count} messages · ${date.toLocaleDateString()}`;
+  return `${count} messages / ${date.toLocaleDateString()}`;
 }
 
 function renderActiveConversation() {
@@ -217,6 +318,7 @@ async function loadConfig() {
   try {
     const response = await fetch("/api/config");
     if (!response.ok) {
+      syncModelChipValue();
       return;
     }
     const config = await response.json();
@@ -237,10 +339,13 @@ async function loadConfig() {
     }
   } catch (_error) {
     // The UI still works with its built-in defaults if config discovery fails.
+  } finally {
+    syncModelChipValue();
   }
 }
 
 async function loadTools() {
+  syncToolsChipValue("Loading");
   try {
     const response = await fetch("/api/tools");
     if (!response.ok) {
@@ -250,13 +355,16 @@ async function loadTools() {
   } catch (error) {
     toolsStatus.textContent = "Unavailable";
     toolsList.textContent = String(error);
+    syncToolsChipValue("Unavailable");
   }
 }
 
 function renderTools(payload) {
   toolMetadata = payload.metadata || [];
   const enabledCount = toolMetadata.filter((tool) => tool.enabled).length;
-  toolsStatus.textContent = `${enabledCount}/${toolMetadata.length} on`;
+  const toolsSummary = `${enabledCount}/${toolMetadata.length} on`;
+  toolsStatus.textContent = toolsSummary;
+  syncToolsChipValue(toolsSummary);
   toolsList.replaceChildren();
 
   for (const [category, tools] of groupToolsByCategory(toolMetadata)) {
@@ -328,6 +436,7 @@ function formatCategory(category) {
 
 async function toggleTool(toolId, enabled) {
   toolsStatus.textContent = "Saving";
+  syncToolsChipValue("Saving");
   const response = await fetch(`/api/tools/${encodeURIComponent(toolId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -344,6 +453,7 @@ async function toggleTool(toolId, enabled) {
 async function setAllTools(enabled) {
   const updates = Object.fromEntries(toolMetadata.map((tool) => [tool.id, enabled]));
   toolsStatus.textContent = "Saving";
+  syncToolsChipValue("Saving");
   const response = await fetch("/api/tools", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -358,9 +468,11 @@ async function setAllTools(enabled) {
 
 async function resetTools() {
   toolsStatus.textContent = "Resetting";
+  syncToolsChipValue("Resetting");
   const response = await fetch("/api/tools/reset", { method: "POST" });
   if (!response.ok) {
     toolsStatus.textContent = "Error";
+    syncToolsChipValue("Error");
     return;
   }
   renderTools(await response.json());
@@ -738,6 +850,7 @@ async function runResearch() {
   };
 
   appendConversationMessage("user", "Problem", problem, payload.domain_context ? `Context: ${payload.domain_context}` : "");
+  closeAllPopovers();
   setBusy(true);
 
   try {
@@ -910,7 +1023,41 @@ function setBusy(busy) {
   sendBtn.disabled = busy;
   runBtn.disabled = busy;
   statusText.textContent = busy ? "Running model..." : "Idle";
+  document.body.classList.toggle("is-busy", busy);
 }
+
+for (const button of popoverButtons) {
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePopover(button.dataset.popoverTarget);
+  });
+}
+
+for (const popoverId of popoverIds) {
+  getPopoverElement(popoverId)?.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!openPopoverId) {
+    return;
+  }
+  const popover = getPopoverElement(openPopoverId);
+  if (popover?.contains(event.target)) {
+    return;
+  }
+  if (getPopoverButtons(openPopoverId).some((button) => button.contains(event.target))) {
+    return;
+  }
+  closeAllPopovers();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && openPopoverId) {
+    closeAllPopovers();
+  }
+});
 
 sendBtn.addEventListener("click", runResearch);
 runBtn.addEventListener("click", runResearch);
@@ -921,6 +1068,8 @@ exportBtn.addEventListener("click", exportActiveConversation);
 enableAllToolsBtn.addEventListener("click", () => setAllTools(true));
 disableAllToolsBtn.addEventListener("click", () => setAllTools(false));
 resetToolsBtn.addEventListener("click", resetTools);
+chatSearchEl?.addEventListener("input", renderChatList);
+modelEl?.addEventListener("input", syncModelChipValue);
 problemEl.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     runResearch();
@@ -928,6 +1077,9 @@ problemEl.addEventListener("keydown", (event) => {
 });
 document.addEventListener("mathjax-ready", typesetPendingMath);
 
+syncModelChipValue();
+syncToolsChipValue("Loading");
 loadConversations();
 loadConfig();
 loadTools();
+document.body.classList.add("is-ready");

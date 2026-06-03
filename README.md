@@ -1,32 +1,32 @@
 # GT Agent
 
-GT Agent is a geometry/topology research agent for proof-oriented auditing, decomposition, and grounded literature retrieval.
+GT Agent 是一个面向几何与拓扑研究的智能代理，重点用于证明审计、问题拆解，以及有文献依据的检索与分析。
 
-It supports:
+它支持：
 
-- Lean-oriented proof workflows and validation
-- a local Web UI for research and retrieval
-- arXiv search with optional PDF grounding
-- structured status reporting such as `PROVED`, `PARTIAL`, and `BLOCKED`
+- 面向 Lean 的证明工作流与校验
+- 本地 Web UI 研究控制台
+- 支持可选 PDF 落地的 arXiv 检索
+- `PROVED`、`PARTIAL`、`BLOCKED` 等结构化状态输出
 
-## Recent Tool Updates
+## 近期工具更新
 
-The latest toolchain update focused on making arXiv retrieval more reliable and less abstract-only:
+最近一次工具链更新主要聚焦在让 arXiv 检索更稳定，并减少“只拿到摘要”的情况：
 
-- `arxiv_search` now supports exact arXiv ID lookup, such as `2606.02478` or `https://arxiv.org/abs/2606.02478`
-- abstract-page enrichment is used to stabilize title, author, date, and PDF metadata
-- PDF download now works through `curl`, `curl.exe`, or `wget`, with `urllib` fallback
-- downloaded PDFs can be previewed locally with `pypdf`, so the agent can ground summaries in the paper itself instead of only the brief abstract
-- direct arXiv answers can now include the local PDF path and PDF preview text when available
+- `arxiv_search` 现在支持精确 arXiv ID 查询，例如 `2606.02478` 或 `https://arxiv.org/abs/2606.02478`
+- 会自动补全摘要页元数据，以提高标题、作者、日期和 PDF 信息的稳定性
+- PDF 下载支持 `curl`、`curl.exe`、`wget`，并带 `urllib` 回退
+- 下载后的 PDF 可通过 `pypdf` 本地预览，因此摘要和总结可以基于全文而不只是短摘要
+- 当 PDF 可用时，直接 arXiv 查询结果中可以返回本地 PDF 路径和 PDF 预览文本
 
-Relevant environment variables:
+相关环境变量：
 
 ```text
 GT_ARXIV_MAX_DOWNLOADS=2
 GT_ARXIV_DOWNLOAD_DIR=C:\path\to\arxiv_papers
 ```
 
-Typical prompts:
+常见提示词示例：
 
 ```text
 Download arXiv 2606.02478 PDF and summarize the full paper.
@@ -34,46 +34,46 @@ Find arXiv paper 2501.01234v2 and give me the local PDF path.
 Search arXiv for recent math.AT papers and return the links.
 ```
 
-## Requirements
+## 环境要求
 
-- Python 3.10 or newer
-- Windows, macOS, or Linux
-- an OpenAI-compatible API for model-backed research mode
+- Python 3.10 或更高版本
+- Windows、macOS 或 Linux
+- 一个兼容 OpenAI API 的模型服务，用于研究模式
 
-Check Python:
+检查 Python：
 
 ```powershell
 python --version
 ```
 
-## Installation
+## 安装
 
-Install the project:
+安装项目：
 
 ```powershell
 python -m pip install -e .
 ```
 
-Install test dependencies when needed:
+如需测试依赖：
 
 ```powershell
 python -m pip install -e ".[test]"
 ```
 
-Run the test suite:
+运行测试：
 
 ```powershell
 python -m pytest
 ```
 
-## Modes
+## 运行模式
 
-- `basic`: independent prover loop with Lean feedback and GTValidator checks
-- `evolution`: local population database with rater and P-UCB sampling
+- `basic`：独立证明循环，结合 Lean 反馈与 GTValidator 校验
+- `evolution`：带本地候选池、评分器与 P-UCB 采样的演化模式
 
-## Input
+## 输入格式
 
-Use a Lean proof sketch with `EVOLVE-BLOCK` / `EVOLVE-VALUE` markers, plus optional `gt_context.md`.
+推荐使用带 `EVOLVE-BLOCK` / `EVOLVE-VALUE` 标记的 Lean 证明草稿，可选搭配 `gt_context.md`。
 
 ```lean
 import Mathlib
@@ -102,18 +102,18 @@ theorem target_theorem : True := by
 end GTProblem
 ```
 
-Natural-language `.md` inputs are accepted for audit and decomposition, but the local adapter will not mark them `PROVED`.
+也支持自然语言 `.md` 输入用于审计和拆解，但本地适配器不会将这类输入标记为 `PROVED`。
 
-## CLI Usage
+## CLI 用法
 
 ```powershell
 python -m gt_agent.run --problem path\to\problem.lean --mode basic
 python -m gt_agent.run --problem path\to\problem.lean --mode evolution
 ```
 
-Outputs are written under `gt_agent_runs/<problem>_<mode>/`:
+输出目录位于 `gt_agent_runs/<problem>_<mode>/`，通常包括：
 
-- `final.lean` or `final.md`
+- `final.lean` 或 `final.md`
 - `summary.md`
 - `gap_ledger.md`
 - `assumption_audit.md`
@@ -122,42 +122,50 @@ Outputs are written under `gt_agent_runs/<problem>_<mode>/`:
 
 ## Web UI
 
-Start the local research console:
+启动本地研究控制台：
 
 ```powershell
 python -m gt_agent.web_app --host 127.0.0.1 --port 8765
 ```
 
-Then open:
+然后在浏览器中打开：
 
 ```text
 http://127.0.0.1:8765
 ```
 
-If you want other devices on the same LAN to access the UI running on this machine:
+如果希望同一局域网内其他设备访问本机 UI：
 
 ```powershell
 python -m gt_agent.web_app --host 0.0.0.0 --port 8765
 ```
 
-The terminal will print the reachable addresses, for example:
+终端会输出可访问地址，例如：
 
 ```text
 GT Agent UI running at http://127.0.0.1:8765
 GT Agent UI running at http://192.168.1.20:8765
 ```
 
-The backend endpoint is:
+现在也可以直接双击根目录下的启动脚本：
+
+```text
+start_gt_agent_ui.bat
+```
+
+它会自动启动本地 Web UI 并打开浏览器，不需要每次手动输入 PowerShell 命令。
+
+后端接口为：
 
 ```text
 POST /api/research
 ```
 
-It wraps the problem with GT Agent's research prompt, local hypothesis audit, and gap ledger before calling the configured model.
+该接口会先用 GT Agent 的研究提示词、本地假设审计和 gap ledger 包装问题，再调用配置好的模型。
 
-## Model Configuration
+## 模型配置
 
-Set environment variables before starting the Web UI:
+启动 Web UI 前可设置以下环境变量：
 
 ```powershell
 $env:GT_MODEL_BASE_URL="https://api.openai.com/v1"
@@ -167,7 +175,7 @@ $env:GT_MODEL_TEMPERATURE="0.2"
 $env:GT_MODEL_MAX_TOKENS="4096"
 ```
 
-For a proxy or another OpenAI-compatible service:
+如果使用代理或其他兼容 OpenAI 的服务：
 
 ```powershell
 $env:GT_MODEL_BASE_URL="https://example.com/v1"
@@ -175,7 +183,7 @@ $env:GT_MODEL="your-model-name"
 $env:GT_MODEL_API_KEY="your-api-key"
 ```
 
-For a local model server such as LM Studio, Ollama-compatible endpoints, or vLLM:
+如果使用本地模型服务，例如 LM Studio、兼容 Ollama 的端点或 vLLM：
 
 ```powershell
 $env:GT_MODEL_BASE_URL="http://127.0.0.1:1234/v1"
@@ -183,96 +191,96 @@ $env:GT_MODEL="your-local-model-name"
 $env:GT_MODEL_API_KEY="any-non-empty-value-required-by-the-server"
 ```
 
-Note that `127.0.0.1` and `localhost` always refer to the current machine. If you move the project to another computer, that second computer's `127.0.0.1` will not point at the original machine's model server.
+注意：`127.0.0.1` 和 `localhost` 永远指向当前这台机器。如果你把项目移到另一台电脑上，那么第二台电脑的 `127.0.0.1` 不会指回原来的模型服务。
 
-## Web UI Fields
+## Web UI 字段说明
 
-The UI accepts:
+当前 UI 支持输入：
 
-- provider URL, such as `https://api.openai.com/v1` or `http://127.0.0.1:1234/v1`
-- model name, such as `gpt-4.1` or a local OpenAI-compatible model name
-- API key, passed only with the current request and not written to disk
-- geometry/topology problem text and optional domain context
-- temperature and max-token settings
+- Provider URL，例如 `https://api.openai.com/v1` 或 `http://127.0.0.1:1234/v1`
+- 模型名称，例如 `gpt-4.1` 或本地兼容 OpenAI 的模型名
+- API Key，仅随当前请求发送，不会写入磁盘
+- 几何 / 拓扑问题正文，以及可选的领域上下文
+- temperature 和 max-token 参数
 
-## Output Status
+## 输出状态说明
 
-- `PROVED`: Lean proof compiles, contains no `sorry` / `admit` / `axiom` / `unsafe`, and the theorem outside evolve markers is unchanged
-- `PARTIAL`: auditable progress or decomposition with explicit gaps
-- `MISFORMALIZED`: formal or informal statement appears to miss required hypotheses or mismatch the intended claim
-- `COUNTEREXAMPLE`: exact counterexample identified
-- `BLOCKED`: precise obstruction and next executable step are reported
+- `PROVED`：Lean 证明可编译，且不含 `sorry` / `admit` / `axiom` / `unsafe`，并且 evolve 标记外的定理未被改动
+- `PARTIAL`：有可审计的进展或拆解结果，并明确列出尚未填补的缺口
+- `MISFORMALIZED`：形式化或自然语言陈述缺少必要假设，或与原意不匹配
+- `COUNTEREXAMPLE`：找到了明确反例
+- `BLOCKED`：精确说明了阻塞点和下一步可执行动作
 
-## Soundness Policy
+## 可靠性策略
 
-The final theorem must compile without `sorry`, `admit`, `axiom`, `unsafe`, or environment escapes. GTValidator enforces:
+最终定理必须在没有 `sorry`、`admit`、`axiom`、`unsafe` 或环境逃逸的情况下编译通过。GTValidator 会强制校验：
 
-- theorem statement unchanged outside evolve markers
-- edits only inside evolve markers
-- imports unchanged unless configured
-- namespace preserved
-- no new axioms or unsafe declarations
-- final Lean compile when accepting `PROVED`
+- 定理陈述在 evolve 标记外保持不变
+- 编辑仅发生在 evolve 标记内部
+- import 不变，除非另有配置
+- namespace 保持不变
+- 不允许新增公理或 unsafe 声明
+- 只有最终 Lean 编译通过时才接受 `PROVED`
 
-Natural-language claims must be labeled by verification status. Named results not supplied by the user or Lean library are treated as unverified claims.
+自然语言结论必须带验证状态。凡是用户或 Lean 库未明确提供的命名结论，都视作未验证主张。
 
-## Geometry/Topology Policy
+## 几何 / 拓扑审计策略
 
-GT Agent always audits category, hypotheses, basepoints, orientations, compactness, boundary, transversality, functoriality, and local-to-global steps. The local audit catches common risk patterns such as overbroad Poincare duality statements on non-compact manifolds.
+GT Agent 会持续审查范畴、假设、基点、定向、紧致性、边界、横截性、函子性，以及局部到整体的推理步骤。该本地审计尤其擅长捕捉一些常见高风险模式，例如在非紧流形上过度泛化 Poincare 对偶。
 
-## Implementation Boundary
+## 实现边界
 
-Complete local implementation:
+当前本地已完整实现的部分包括：
 
-- `gt_agent/` package
-- GT prover and rater prompts
+- `gt_agent/` 包
+- GT prover 与 rater 提示词
 - `GTValidator`
-- basic mode controller
-- gap ledger rendering and extraction
-- attempt summary schema
+- basic 模式控制器
+- gap ledger 渲染与抽取
+- attempt summary 结构
 - CLI
-- deterministic local rater
-- pytest smoke and policy tests
+- 确定性的本地 rater
+- pytest 烟雾测试与策略测试
 
-Adapter or stub boundary:
+适配器或占位实现的部分包括：
 
-- LLM proof proposal is represented by `GTProverSubagent.propose_next_code`; the built-in version only performs conservative local repairs such as `True := by sorry` to `trivial`
-- model research calls use `OpenAICompatibleClient`, a small `/chat/completions` adapter that supports OpenAI and compatible providers through `base_url`, `model`, and `api_key`
-- Lean integration uses a thin `LeanCompiler` adapter; if `lean` is unavailable, final proofs are not accepted as `PROVED`
-- evolution mode is an in-memory, single-process interface with population, rater, and P-UCB sampling; it is intentionally not a distributed search system
+- LLM 证明提议通过 `GTProverSubagent.propose_next_code` 表示；内置版本目前只做保守型本地修补，例如把 `True := by sorry` 修成 `trivial`
+- 模型研究调用通过 `OpenAICompatibleClient` 完成，这是一个小型 `/chat/completions` 适配器，支持 OpenAI 和兼容服务
+- Lean 集成通过薄封装 `LeanCompiler` 完成；如果系统里没有 `lean`，最终结果不会被接受为 `PROVED`
+- evolution 模式目前是单进程、内存态的候选池 + rater + P-UCB 接口，并不是分布式搜索系统
 
-## Troubleshooting
+## 故障排查
 
 ### WinError 10061 / connection refused
 
-This usually means the provider URL points to a service that is not running, is listening on a different port, or is running on a different machine than the one you think it is. It is usually not an API-key formatting issue.
+这通常表示 Provider URL 指向的服务没有启动、监听端口不对，或者服务运行在另一台机器上，而不是 API Key 格式问题。
 
-Things to check:
+建议检查：
 
-- for cloud APIs, verify the URL really ends in something like `https://.../v1`
-- for local models, start the local model server before launching GT Agent
-- if the model server is on another machine, do not use `127.0.0.1`; use that machine's LAN IP instead, for example `http://192.168.1.20:1234/v1`
-- make sure the serving machine allows inbound traffic on the chosen port
+- 如果是云端 API，确认 URL 的结尾确实像 `https://.../v1`
+- 如果是本地模型，先启动模型服务，再启动 GT Agent
+- 如果模型服务在另一台机器上，不要使用 `127.0.0.1`，而要用那台机器的局域网 IP，例如 `http://192.168.1.20:1234/v1`
+- 确认服务端机器允许该端口的入站访问
 
-### Browser cannot open the Web UI
+### 浏览器打不开 Web UI
 
-Things to check:
+建议检查：
 
-- for same-machine use, run `--host 127.0.0.1` and open `http://127.0.0.1:8765`
-- for LAN access, run `--host 0.0.0.0` and open the printed LAN address
-- if the port is occupied, switch to another one, for example `--port 8777`
+- 本机访问时，使用 `--host 127.0.0.1`，然后打开 `http://127.0.0.1:8765`
+- 局域网访问时，使用 `--host 0.0.0.0`，然后打开终端输出的局域网地址
+- 如果端口被占用，换一个端口，例如 `--port 8777`
 
-### The command returns immediately to PowerShell
+### 命令一运行就直接回到 PowerShell
 
-Under normal conditions, the Web UI command keeps running and prints `GT Agent UI running at ...`.
+正常情况下，Web UI 命令会持续运行，并输出 `GT Agent UI running at ...`。
 
-If it exits immediately:
+如果它立即退出：
 
-- make sure you are running from the project root
-- rerun `python -m pip install -e .`
-- make sure the full command is `python -m gt_agent.web_app --host 127.0.0.1 --port 8765`
-- do not run only the argument fragment such as `--host 127.0.0.1 --port 8765`
+- 确认你是在项目根目录运行命令
+- 重新执行 `python -m pip install -e .`
+- 确认完整命令是 `python -m gt_agent.web_app --host 127.0.0.1 --port 8765`
+- 不要只运行参数片段，例如单独输入 `--host 127.0.0.1 --port 8765`
 
-## Repository Note
+## 仓库说明
 
-This README now replaces the old split between `README.md` and `README_GT_AGENT.md`, so setup, runtime, troubleshooting, and tool-update notes live in one place.
+现在这份 `README.md` 已替代原先拆分的 `README.md` 与 `README_GT_AGENT.md` 说明方式，因此安装、运行、故障排查和工具更新说明都集中维护在这里。

@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GT Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/static/styles.css" />
     <script>
       window.MathJax = {
@@ -32,108 +38,215 @@
     <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
   </head>
   <body>
-    <main class="app-shell">
-      <aside class="sidebar">
+    <div class="page-frame">
+      <header class="site-header">
         <div class="brand">
-          <div class="brand-mark">GT</div>
-          <div>
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 96 96" role="presentation">
+              <rect x="18" y="12" width="50" height="66" fill="none" />
+              <path d="M28 76V24c0-8.8 7.2-16 16-16h16v52" fill="none" />
+              <rect x="42" y="42" width="28" height="28" fill="none" transform="rotate(45 56 56)" />
+              <circle cx="54" cy="54" r="4.8" />
+            </svg>
+          </div>
+          <div class="brand-copy">
+            <p class="eyebrow">Geometry and Topology Research Console</p>
             <h1>GT Agent</h1>
-            <p>Geometry & Topology Research</p>
           </div>
         </div>
-
-        <section class="chat-panel" aria-labelledby="chatsTitle">
-          <div class="chat-panel-header">
-            <h2 id="chatsTitle">Conversations</h2>
-            <button id="newChatBtn" type="button" title="New conversation">New</button>
-          </div>
-          <div class="chat-actions">
-            <button id="renameChatBtn" type="button">Rename</button>
-            <button id="deleteChatBtn" type="button">Delete</button>
-          </div>
-          <div id="chatList" class="chat-list"></div>
-        </section>
-
-        <section class="panel">
-          <label>
-            Provider URL
-            <input id="baseUrl" value="https://api.openai.com/v1" autocomplete="off" />
-          </label>
-          <label>
-            Model
-            <input id="model" value="gpt-4.1" autocomplete="off" />
-          </label>
-          <label>
-            API Key
-            <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-          </label>
-          <label>
-            Temperature
-            <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2" />
-          </label>
-          <label>
-            Max Tokens
-            <input id="maxTokens" type="number" min="512" step="512" value="8192" />
-          </label>
-        </section>
-
-        <section class="tools-panel" aria-labelledby="toolsTitle">
-          <div class="tools-panel-header">
-            <h2 id="toolsTitle">Tools</h2>
-            <span id="toolsStatus">Loading</span>
-          </div>
-          <div class="tool-actions">
-            <button id="enableAllToolsBtn" type="button">All On</button>
-            <button id="disableAllToolsBtn" type="button">All Off</button>
-            <button id="resetToolsBtn" type="button">Reset</button>
-          </div>
-          <div id="toolsList" class="tools-list"></div>
-        </section>
-      </aside>
-
-      <section class="workspace">
-        <header class="topbar">
-          <div>
-            <h2 id="activeChatTitle">Research Console</h2>
-            <p>Geometry/topology workspace</p>
-          </div>
-          <div class="topbar-actions">
-            <select id="exportFormat" aria-label="Export format">
-              <option value="markdown">Markdown</option>
-              <option value="pdf">PDF</option>
-              <option value="json">JSON</option>
-            </select>
-            <button id="exportBtn" type="button">Export</button>
-            <button id="runBtn" type="button">Run</button>
-          </div>
-        </header>
-
-        <section class="conversation" id="conversation">
-          <article class="message assistant">
-            <div class="avatar">GT</div>
-            <div class="bubble">
-              <strong>Ready.</strong>
-              <p>State a problem with its definitions, hypotheses, and allowed references.</p>
-            </div>
-          </article>
-        </section>
-
-        <section class="composer">
-          <label class="context-label">
-            Domain Context
-            <textarea id="context" rows="4" placeholder="smooth manifolds, compact oriented closed, allowed references..."></textarea>
-          </label>
-          <label class="problem-label">
-            Problem
-            <textarea id="problem" rows="8" placeholder="Problem statement..."></textarea>
-          </label>
-          <div class="composer-actions">
+        <div class="header-actions">
+          <div class="status-pill">
+            <span class="status-dot"></span>
             <span id="statusText">Idle</span>
-            <button id="sendBtn" type="button">Send</button>
           </div>
+        </div>
+      </header>
+
+      <main class="app-shell">
+        <aside class="sidebar">
+          <section class="sidebar-top panel-block">
+            <button id="newChatBtn" class="button button-primary sidebar-new-chat" type="button">
+              <span class="button-icon">+</span>
+              <span>New conversation</span>
+            </button>
+            <label class="search-field" aria-label="Filter conversations">
+              <span class="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <path d="M20 20 16.65 16.65"></path>
+                </svg>
+              </span>
+              <input id="chatSearch" type="text" placeholder="Filter conversations..." autocomplete="off" />
+            </label>
+          </section>
+
+          <section class="chat-panel panel-block" aria-labelledby="chatsTitle">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Session Archive</p>
+                <h2 id="chatsTitle">Conversations</h2>
+              </div>
+            </div>
+            <div class="chat-actions">
+              <button id="renameChatBtn" class="button button-secondary button-small" type="button">Rename</button>
+              <button id="deleteChatBtn" class="button button-secondary button-small" type="button">Delete</button>
+            </div>
+            <div id="chatList" class="chat-list"></div>
+          </section>
+        </aside>
+
+        <section class="workspace">
+          <header class="workspace-header">
+            <div>
+              <p class="eyebrow">Conversation</p>
+              <h2 id="activeChatTitle">Research Console</h2>
+            </div>
+            <div class="workspace-badge-row">
+              <button
+                id="modelPanelBtn"
+                class="workspace-chip workspace-chip-control"
+                type="button"
+                aria-expanded="false"
+                aria-controls="modelPopover"
+                data-popover-target="modelPopover"
+              >
+                <span class="chip-label">Model</span>
+                <span id="modelChipValue" class="chip-value">gpt-4.1</span>
+              </button>
+              <button
+                id="toolsPanelBtn"
+                class="workspace-chip workspace-chip-control"
+                type="button"
+                aria-expanded="false"
+                aria-controls="toolsPopover"
+                data-popover-target="toolsPopover"
+              >
+                <span class="chip-label">Tools</span>
+                <span id="toolsChipValue" class="chip-value">Loading</span>
+              </button>
+              <span class="workspace-chip workspace-chip-static">Topology-first</span>
+            </div>
+          </header>
+
+          <div class="workspace-popovers">
+            <section id="modelPopover" class="control-popover panel-block" hidden>
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Model Settings</p>
+                  <h2>Provider</h2>
+                </div>
+              </div>
+              <label>
+                Provider URL
+                <input id="baseUrl" value="https://api.openai.com/v1" autocomplete="off" />
+              </label>
+              <label>
+                Model
+                <input id="model" value="gpt-4.1" autocomplete="off" />
+              </label>
+              <label>
+                API Key
+                <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+              </label>
+              <div class="two-column-fields">
+                <label>
+                  Temperature
+                  <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2" />
+                </label>
+                <label>
+                  Max Tokens
+                  <input id="maxTokens" type="number" min="512" step="512" value="8192" />
+                </label>
+              </div>
+            </section>
+
+            <section id="toolsPopover" class="control-popover panel-block" hidden aria-labelledby="toolsTitle">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Execution Surface</p>
+                  <h2 id="toolsTitle">Tools</h2>
+                </div>
+                <span id="toolsStatus" class="tools-status">Loading</span>
+              </div>
+              <div class="tool-actions">
+                <button id="enableAllToolsBtn" class="button button-secondary button-small" type="button">All On</button>
+                <button id="disableAllToolsBtn" class="button button-secondary button-small" type="button">All Off</button>
+                <button id="resetToolsBtn" class="button button-ghost button-small" type="button">Reset</button>
+              </div>
+              <div id="toolsList" class="tools-list"></div>
+            </section>
+          </div>
+
+          <section class="conversation-stage">
+            <section class="conversation" id="conversation">
+              <article class="message assistant">
+                <div class="avatar">GT</div>
+                <div class="bubble">
+                  <strong>Ready.</strong>
+                  <p>State a problem with its definitions, hypotheses, and allowed references.</p>
+                </div>
+              </article>
+            </section>
+          </section>
+
+          <section class="composer">
+            <div class="composer-grid">
+              <label class="context-label">
+                Domain Context
+                <textarea
+                  id="context"
+                  rows="5"
+                  placeholder="smooth manifolds, compact oriented closed, allowed references..."
+                ></textarea>
+              </label>
+              <label class="problem-label">
+                Problem
+                <textarea id="problem" rows="10" placeholder="Problem statement..."></textarea>
+              </label>
+            </div>
+
+            <div class="composer-toolbar">
+              <div class="composer-toolbar-meta">
+                <button
+                  class="workspace-chip workspace-chip-control"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="modelPopover"
+                  data-popover-target="modelPopover"
+                >
+                  <span class="chip-label">Model</span>
+                  <span id="modelChipValueInline" class="chip-value">gpt-4.1</span>
+                </button>
+                <button
+                  class="workspace-chip workspace-chip-control"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="toolsPopover"
+                  data-popover-target="toolsPopover"
+                >
+                  <span class="chip-label">Tools</span>
+                  <span id="toolsChipValueInline" class="chip-value">Loading</span>
+                </button>
+                <span class="toolbar-note">Ctrl+Enter to run the current problem</span>
+              </div>
+
+              <div class="composer-toolbar-actions">
+                <div class="export-group">
+                  <select id="exportFormat" aria-label="Export format">
+                    <option value="markdown">Markdown</option>
+                    <option value="pdf">PDF</option>
+                    <option value="json">JSON</option>
+                  </select>
+                  <button id="exportBtn" class="button button-secondary" type="button">Export</button>
+                </div>
+                <button id="runBtn" class="button button-ghost" type="button">Run</button>
+                <button id="sendBtn" class="button button-primary" type="button">Send</button>
+              </div>
+            </div>
+          </section>
         </section>
-      </section>
-    </main>
+      </main>
+    </div>
     <script src="/static/app.js"></script>
   </body>
 </html>
